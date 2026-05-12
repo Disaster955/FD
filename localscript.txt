@@ -1,0 +1,665 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local NORMAL_FOV = 70
+local RUN_FOV = 80
+local TRANSITION_TIME = 0.8--runButton.MouseButton1Click:Connect(function()
+
+local allowedTeams = {
+	Survivors = true,
+	Killers = true
+}
+
+local REGEN_DELAY = 0.7
+
+local character
+local humanoid
+local running = false
+local currentTween
+local updatingSpeed = false
+local characterConnections = {}
+local lastStaminaUpdate = tick()
+local lastStopTime = 0
+
+local staminaBar
+local staminaNumber
+local runButtonEnabled = false
+local runButtonConnection
+
+local function disconnectCharacterConnections()
+	for _, conn in ipairs(characterConnections) do
+		conn:Disconnect()
+	end
+
+	table.clear(characterConnections)
+end
+
+local function track(conn)
+	table.insert(characterConnections, conn)
+	return conn
+end
+
+local function isAllowedTeam()
+	return player.Team and allowedTeams[player.Team.Name]
+end
+
+local function isKiller()
+	return player.Team and player.Team.Name == "Killers"
+end
+
+local function getPlayerFolder()
+	return workspace:FindFirstChild(player.Name)
+end
+
+local function isSprintInputActivated()
+	local folder = getPlayerFolder()
+	return folder and folder:GetAttribute("SprintInputActivate") == true
+end
+
+local function getCharacterClient()
+	local folder = getPlayerFolder()
+	return folder and folder:FindFirstChild("CharacterClient")
+end
+
+local function getAttrFromAny(name)
+	local charClient = getCharacterClient()
+
+	if charClient then
+		local v = charClient:GetAttribute(name)
+		if v ~= nil then
+			return v
+		end
+	end
+
+	if character then
+		local v = character:GetAttribute(name)
+		if v ~= nil then
+			return v
+		end
+	end
+
+	local v = player:GetAttribute(name)
+
+	if v ~= nil then
+		return v
+	end
+end
+
+local function setupNewStaminaUI()
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local gameGui = gui:FindFirstChild("GameGui")
+	if not gameGui then return end
+
+	local bars = gameGui:FindFirstChild("Bars")
+	if not bars then return end
+
+	local original = bars:FindFirstChild("Stamina")
+	if not original then return end
+
+	if not bars:FindFirstChild("StaminaCopy") then
+		local copy = original:Clone()
+
+		copy.Name = "StaminaCopy"
+		copy.Parent = bars
+
+		original.Visible = false
+
+		staminaBar = copy:FindFirstChild("Bar")
+		staminaNumber = copy:FindFirstChild("Number")
+	end
+
+	local copy = bars:FindFirstChild("StaminaCopy")
+
+	if copy then
+		copy.Visible = isAllowedTeam()
+	end
+end
+
+local function updateNewStaminaUI()
+	if not isAllowedTeam() then
+		return
+	end
+
+	local current = getAttrFromAny("CurrentStamina") or (getAttrFromAny("Stamina") or 100)
+	local maxStamina = getAttrFromAny("Stamina") or 100
+
+	if staminaBar then
+		staminaBar.Size = UDim2.new(math.clamp(current / maxStamina, 0, 1), 0, 1, 0)
+	end
+
+	if staminaNumber then
+		staminaNumber.Text = math.floor(current) .. " %"
+	end
+end
+
+local function getStaminaInd()
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+--shiftHeld = false
+	local settings = gui:FindFirstChild("SettingsGUI")
+	return settings and settings:FindFirstChild("StaminaInd")
+end
+
+local function createStaminaIndIfNeeded()
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local settings = gui:FindFirstChild("SettingsGUI")
+	if not settings then return end
+
+	local original = settings:FindFirstChild("StaminaIndicador")
+	local ind = settings:FindFirstChild("StaminaInd")
+
+	if original then
+		original.TextTransparency = 1
+
+		if not ind then
+			ind = original:Clone()
+			ind.Name = "StaminaInd"
+			ind.Parent = settings
+			ind.TextTransparency = 0
+
+            ind.Position = UDim2.new(0.5, 0, 0.5, 0)
+		end
+	end
+
+	if ind then
+		if isAllowedTeam() then
+			ind.Visible = original and original.Visible or false
+		else
+			ind.Visible = false
+		end
+	end
+end
+
+local function updateStaminaText()
+	if not isAllowedTeam() then
+		return
+	end
+
+	local ind = getStaminaInd()
+	if not ind then return end
+
+	local current = getAttrFromAny("CurrentStamina") or (getAttrFromAny("Stamina") or 100)
+	local maxStamina = getAttrFromAny("Stamina") or 100
+
+	current = math.clamp(current, 0, maxStamina)
+
+	local displayed = math.floor(current)
+
+	ind.Text = tostring(displayed)
+	ind.TextTransparency = 0
+
+	local high = Color3.fromRGB(114, 255, 53)
+	local mid = Color3.fromRGB(255, 255, 53)
+	local low = Color3.fromRGB(255, 56, 53)
+
+	local percent = current / maxStamina
+
+	if percent >= 0.5 then
+		ind.TextColor3 = mid:Lerp(high, (percent - 0.5) / 0.5)
+	else
+		ind.TextColor3 = low:Lerp(mid, percent / 0.5)
+	end
+
+	local uiScale = ind:FindFirstChildOfClass("UIScale")
+
+	if uiScale then
+		local last = ind:GetAttribute("LastDisplayedStamina")
+
+		if last ~= displayed then
+			ind:SetAttribute("LastDisplayedStamina", displayed)
+
+			uiScale.Scale = 1.24
+
+			TweenService:Create(
+				uiScale,
+				TweenInfo.new(
+					0.12,
+					Enum.EasingStyle.Quad,
+					Enum.EasingDirection.Out
+				),
+				{
+					Scale = 1
+				}
+			):Play()
+		end
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(0.2)
+
+		setupNewStaminaUI()
+		createStaminaIndIfNeeded()
+	end
+end)
+
+local function setupStaminaListener()
+	if not isAllowedTeam() then
+		return
+	end
+
+	local charClient = getCharacterClient()
+
+	if charClient then
+		track(charClient:GetAttributeChangedSignal("CurrentStamina"):Connect(function()
+			updateNewStaminaUI()
+			updateStaminaText()
+		end))
+
+		track(charClient:GetAttributeChangedSignal("Stamina"):Connect(function()
+			updateNewStaminaUI()
+			updateStaminaText()
+		end))
+	end
+end
+
+local function hasValidNearbyPlayer()
+	if not isKiller() then
+		return true
+	end
+
+	if not character then
+		return false
+	end
+
+	local root = character:FindFirstChild("HumanoidRootPart")
+
+	if not root then
+		return false
+	end
+
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player and other.Team ~= player.Team then
+			local otherCharacter = other.Character
+
+			if otherCharacter then
+				local otherRoot = otherCharacter:FindFirstChild("HumanoidRootPart")
+				local otherHumanoid = otherCharacter:FindFirstChildOfClass("Humanoid")
+
+				if otherRoot and otherHumanoid and otherHumanoid.Health > 0 then
+					local distance = (Vector3.new(
+						otherRoot.Position.X,
+						0,
+						otherRoot.Position.Z
+					) - Vector3.new(
+						root.Position.X,
+						0,
+						root.Position.Z
+					)).Magnitude
+
+					local height = math.abs(otherRoot.Position.Y - root.Position.Y)
+
+					if distance <= 82.5 and height <= 11.5 then
+						return true
+					end
+				end
+			end
+		end
+	end
+
+	return false
+end
+
+local function handleStaminaUpdate()
+	if not isAllowedTeam() then
+		return
+	end
+
+	local charClient = getCharacterClient()
+	if not charClient then return end
+
+	local base = getAttrFromAny("Stamina") or 100
+	local current = getAttrFromAny("CurrentStamina") or base
+	local loss = getAttrFromAny("StaminaLoss") or 0
+	local gain = getAttrFromAny("StaminaGain") or 0
+
+	local now = tick()
+	local delta = now - lastStaminaUpdate
+
+	lastStaminaUpdate = now
+
+	if delta <= 0 then return end
+
+	local moving = humanoid and humanoid.MoveDirection.Magnitude > 0
+	local sprinting = running and moving
+
+	local new = current
+
+	if sprinting then
+		if isKiller() then
+			if hasValidNearbyPlayer() then
+				new = math.max(0, current - (loss * delta))
+			else
+				new = math.min(base, current + (gain * delta))
+			end
+		else
+			new = math.max(0, current - (loss * delta))
+		end
+
+		lastStopTime = 0
+
+	elseif running and not moving then
+		new = math.min(base, current + (gain * delta))
+		lastStopTime = 0
+
+	else
+		if lastStopTime == 0 then
+			lastStopTime = now
+		end
+
+		if now - lastStopTime >= REGEN_DELAY then
+			new = math.min(base, current + (gain * delta))
+		end
+	end
+
+	if math.abs(new - current) > 0.01 then
+		charClient:SetAttribute("CurrentStamina", new)
+	end
+end
+
+local function setFOV(fov)
+	if currentTween then
+		currentTween:Cancel()
+	end
+
+	currentTween = TweenService:Create(
+		camera,
+		TweenInfo.new(
+			TRANSITION_TIME,
+			Enum.EasingStyle.Quad,
+			Enum.EasingDirection.Out
+		),
+		{
+			FieldOfView = fov
+		}
+	)
+
+	currentTween:Play()
+end
+
+local function isMovementLocked()
+	if not humanoid then
+		return true
+	end
+
+	local hardLocked =
+		humanoid.PlatformStand
+		or humanoid.Sit
+		or humanoid.Health <= 0
+
+	return hardLocked
+end
+
+local function getCanRun()
+	return getAttrFromAny("CanRun") == true
+end
+
+local function getEffectiveSpeeds()
+	local baseWalk = getAttrFromAny("OriginalBaseWalkSpeed")
+	local baseRun = getAttrFromAny("OriginalBaseRunSpeed")
+	local intended = getAttrFromAny("IntendedWalkSpeed")
+
+	if not baseWalk or not baseRun then
+		return
+	end
+
+	if not intended then
+		return baseWalk, baseRun
+	end
+
+	-- SISTEMA ESPECIAL PARA MITAD
+	local halfWalk = baseWalk / 2
+	local halfRun = baseRun / 2
+
+	local isHalfWalk = math.abs(intended - halfWalk) <= 0.001
+	local isHalfRun = math.abs(intended - halfRun) <= 0.001
+
+	if isHalfWalk or isHalfRun then
+		return halfWalk, halfRun
+	end
+
+	-- SI EL JUEGO PONE MENOS QUE EL WALK BASE
+	-- EL SCRIPT ORIGINAL SE ENCARGA DE ESO
+	if intended <= baseWalk then
+		return intended, baseRun
+	end
+
+	local bonus
+
+	-- RANGO:
+	-- DESDE baseWalk HASTA 19.999...
+	if intended < baseRun then
+		bonus = intended - baseWalk
+	else
+		-- 20 EN ADELANTE
+		bonus = intended - baseRun
+	end
+
+	-- SOLO BUFFS
+	bonus = math.max(0, bonus)
+
+	local finalWalk = baseWalk + bonus
+	local finalRun = baseRun + bonus
+
+	return finalWalk, finalRun
+end
+
+local function canRun()
+	return humanoid
+		and character
+		and not isMovementLocked()
+		and isAllowedTeam()
+		and getCanRun()
+end
+
+local function apply()
+	if not isAllowedTeam() then
+		running = false
+		return
+	end
+
+	if not humanoid then
+		return
+	end
+
+	if not getCanRun() then
+
+		setFOV(NORMAL_FOV)
+
+		local baseWalk = getAttrFromAny("OriginalBaseWalkSpeed") or 16
+
+		if humanoid.WalkSpeed > baseWalk then
+			updatingSpeed = true
+			humanoid.WalkSpeed = baseWalk
+			updatingSpeed = false
+		end
+
+		return
+	end
+
+	local walkSpeed, runSpeed = getEffectiveSpeeds()
+
+	if not walkSpeed or not runSpeed then
+		running = false
+		setFOV(NORMAL_FOV)
+		return
+	end
+
+    if not canRun() then
+	    setFOV(NORMAL_FOV)
+	    return
+    end
+
+	local currentSpeed = humanoid.WalkSpeed
+
+	if currentSpeed <= 0 then
+		setFOV(NORMAL_FOV)
+		return
+	end
+
+	if running then
+		local speed = isSprintInputActivated() and walkSpeed or runSpeed
+
+		if humanoid.WalkSpeed ~= speed then
+			updatingSpeed = true
+			humanoid.WalkSpeed = speed
+			updatingSpeed = false
+		end
+
+		setFOV(humanoid.MoveDirection.Magnitude > 0 and RUN_FOV or NORMAL_FOV)
+	else
+		if humanoid.WalkSpeed > walkSpeed or humanoid.WalkSpeed ~= walkSpeed then
+			updatingSpeed = true
+			humanoid.WalkSpeed = walkSpeed
+			updatingSpeed = false
+		end
+
+		setFOV(NORMAL_FOV)
+	end
+end
+
+local function handleCanRunChanged()
+	if getCanRun() and runButtonEnabled then
+		running = true
+	else
+		running = false
+	end
+
+	apply()
+end
+
+local function connectRunButton(runButton)
+	if runButtonConnection then
+		runButtonConnection:Disconnect()
+		runButtonConnection = nil
+	end
+
+	runButtonConnection = runButton.MouseButton1Click:Connect(function()
+
+		if not isAllowedTeam() then
+			running = false
+			runButtonEnabled = false
+			apply()
+			return
+		end
+
+        runButtonEnabled = not runButtonEnabled
+
+        running = runButtonEnabled
+
+        if running and (not canRun() or not getCanRun()) then
+	        running = false
+	        runButtonEnabled = false
+        end
+
+        apply()
+	end)
+end
+
+local function setupMobileRunButton()
+	local playerGui = player:WaitForChild("PlayerGui")
+
+	local function tryConnect()
+		local gameGui = playerGui:FindFirstChild("GameGui")
+
+		if not gameGui then
+			return
+		end
+
+		local runButton = gameGui:FindFirstChild("RunButton")
+
+		if not runButton then
+			return
+		end
+
+		connectRunButton(runButton)
+	end
+
+	tryConnect()
+
+	playerGui.DescendantAdded:Connect(function(desc)
+		if desc.Name == "RunButton" then
+			connectRunButton(desc)
+		end
+	end)
+end
+
+local function hookCharacter(char)
+	disconnectCharacterConnections()--local function handleCanRunChanged()
+
+	character = char
+	humanoid = char:WaitForChild("Humanoid", 10)
+
+	if not humanoid then--if player.Character then
+		return
+	end
+
+	running = false
+	lastStaminaUpdate = tick()
+	lastStopTime = 0
+--if player.Character then
+	if isAllowedTeam() then
+		local charClient = getCharacterClient()
+
+		if charClient then
+			local base = getAttrFromAny("Stamina") or 100
+
+			if charClient:GetAttribute("CurrentStamina") == nil then
+				charClient:SetAttribute("CurrentStamina", base)
+			end
+		end
+
+		setupStaminaListener()
+	end
+
+	track(char:GetAttributeChangedSignal("CanRun"):Connect(handleCanRunChanged))
+	track(player:GetAttributeChangedSignal("CanRun"):Connect(handleCanRunChanged))
+
+	track(char:GetAttributeChangedSignal("OriginalBaseRunSpeed"):Connect(apply))
+	track(char:GetAttributeChangedSignal("OriginalBaseWalkSpeed"):Connect(apply))
+	track(char:GetAttributeChangedSignal("IntendedWalkSpeed"):Connect(apply))
+	track(player:GetPropertyChangedSignal("Team"):Connect(apply))
+
+	local folder = getPlayerFolder()
+--
+	if folder then
+		track(folder:GetAttributeChangedSignal("SprintInputActivate"):Connect(apply))
+	end
+
+	apply()--handleCanRunChanged()
+end
+
+player.CharacterAdded:Connect(hookCharacter)
+
+if player.Character then
+	hookCharacter(player.Character)
+end
+
+setupMobileRunButton()
+
+RunService.RenderStepped:Connect(function()
+	if isAllowedTeam() and humanoid and running then
+		apply()
+	end--local function hookCharacter(char)
+end)
+
+RunService.Heartbeat:Connect(function()
+	if not isAllowedTeam() then
+		return--
+	end
+--StaminaInd
+	handleStaminaUpdate()
+	updateNewStaminaUI()
+	updateStaminaText()
+end)
+
+--local function toggleRun(_, state)
