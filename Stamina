@@ -1,0 +1,82 @@
+-- // STAMINA EXPLOIT - OPTIMIZADO (Solo Max, Loss, Gain) //
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- ================== CONFIG ==================
+_G.Stamina_Max   = nil
+_G.Stamina_Loss  = 5
+_G.Stamina_Gain  = 25
+-- ===========================================
+
+-- Cleanup anterior
+if _G.StaminaExploitCleanup then 
+    pcall(_G.StaminaExploitCleanup) 
+end
+
+local cleanupFunctions = {}
+_G.StaminaExploitCleanup = function()
+    for _, f in ipairs(cleanupFunctions) do pcall(f) end
+end
+
+local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local systems = nil
+
+print("🔧 Stamina Exploit Optimizado cargado")
+
+local function findSystems()
+    for _, v in pairs(getgc(true)) do
+        if typeof(v) == "table" and rawget(v, "stamina") and rawget(v, "maxStamina") then
+            return v
+        end
+    end
+    return nil
+end
+
+local function applyStamina()
+    systems = systems or findSystems()
+    
+    if systems then
+        if _G.Stamina_Max ~= nil then
+            systems.maxStamina = _G.Stamina_Max
+        end
+        if _G.Stamina_Loss ~= nil then
+            systems.staminaLossRate = _G.Stamina_Loss
+        end
+        if _G.Stamina_Gain ~= nil then
+            systems.staminaGainRate = _G.Stamina_Gain
+        end
+    end
+
+    if char and char.Parent and _G.Stamina_Max ~= nil then
+        char:SetAttribute("MaxStamina", _G.Stamina_Max)
+    end
+end
+
+-- Loop optimizado (más eficiente)
+task.spawn(function()
+    while task.wait(0.5) do   -- 0.5s es más óptimo y menos pesado
+        applyStamina()
+    end
+end)
+
+-- Re-búsqueda ligera
+task.spawn(function()
+    while task.wait(10) do
+        systems = nil
+    end
+end)
+
+-- Respawn
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    char = newChar
+    systems = nil
+    task.wait(2)
+    applyStamina()
+end)
+
+applyStamina()
+
+print("✅ Exploit Optimizado Activado")
+print("   Solo modifica Max, Loss y Gain")
+print("   Usa _G.Stamina_Max = 300  para cambiar en tiempo real")
