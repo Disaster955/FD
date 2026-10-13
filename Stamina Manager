@@ -1,0 +1,3 @@
+_G.Stamina_Max   = nil
+_G.Stamina_Loss  = 7
+_G.Stamina_Gain  = 30
