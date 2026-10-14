@@ -76,7 +76,7 @@ Tabs.ESP:AddColorpicker("ColorKillers", {
 })
 
 Tabs.ESP:AddInput("SurvFillTrans", {
-    Title = "Survivors Fill Transparency",
+    Title = "S Fill Transparency",
     Default = "",
     Placeholder = "0 a 1 (ej: 0.35)",
     Numeric = true,
@@ -88,7 +88,7 @@ Tabs.ESP:AddInput("SurvFillTrans", {
 })
 
 Tabs.ESP:AddInput("SurvOutTrans", {
-    Title = "Survivors Outline Transparency",
+    Title = "S Outline Transparency",
     Default = "",
     Placeholder = "0 a 1 (ej: 0)",
     Numeric = true,
@@ -100,7 +100,7 @@ Tabs.ESP:AddInput("SurvOutTrans", {
 })
 
 Tabs.ESP:AddInput("KillFillTrans", {
-    Title = "Killers Fill Transparency",
+    Title = "K Fill Transparency",
     Default = "",
     Placeholder = "0 a 1 (ej: 0.35)",
     Numeric = true,
@@ -112,7 +112,7 @@ Tabs.ESP:AddInput("KillFillTrans", {
 })
 
 Tabs.ESP:AddInput("KillOutTrans", {
-    Title = "Killers Outline Transparency",
+    Title = "K Outline Transparency",
     Default = "",
     Placeholder = "0 a 1 (ej: 0)",
     Numeric = true,
@@ -196,7 +196,7 @@ Tabs.Stamina:AddInput("SGainInput", {
 })
 
 Tabs.Stamina:AddToggle("SDelayToggle", {
-    Title = "Stamina Delay",
+    Title = "No Stamina Delay",
     Default = false,
     Callback = function(v)
         _G.SDelay = v
